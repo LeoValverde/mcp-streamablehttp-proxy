@@ -30,6 +30,7 @@ class MCPSession:
         self.last_activity = time.time()
         self._cleanup_task: Optional[asyncio.Task] = None
         self._read_task: Optional[asyncio.Task] = None
+        self._stderr_task: Optional[asyncio.Task] = None
 
     async def start_server(self):
         """Start the underlying MCP server process."""
@@ -46,6 +47,9 @@ class MCPSession:
 
         # Start reading responses from the server
         self._read_task = asyncio.create_task(self._read_responses())
+
+        # Start reading error responses from the server
+        self._stderr_task = asyncio.create_task(self._read_stderr())
 
         # Don't auto-initialize - wait for client to send initialize request
 
@@ -73,6 +77,28 @@ class MCPSession:
             except Exception as e:
                 logger.error(
                     f"Session {self.session_id}: Error reading from server: {e}",
+                )  # TODO: Break long line
+                break
+
+    async def _read_stderr(self):
+        """Read responses from the server stderr."""
+        while self.process and self.process.stderr:
+            try:
+                line = await self.process.stderr.readline()
+                if not line:
+                    break
+
+                line = line.decode().strip()
+                if not line:
+                    continue
+
+                logger.debug(
+                    f"Session {self.session_id}: Server stderr: {line}",
+                )  # TODO: Break long line
+
+            except Exception as e:
+                logger.error(
+                    f"Session {self.session_id}: Error reading stderr from server: {e}",
                 )  # TODO: Break long line
                 break
 
@@ -224,6 +250,9 @@ class MCPSession:
 
         if self._read_task:
             self._read_task.cancel()
+
+        if self._stderr_task:
+            self._stderr_task.cancel()
 
         # Cancel all pending responses
         for future in self.pending_responses.values():
